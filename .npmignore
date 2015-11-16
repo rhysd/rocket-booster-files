@@ -1,0 +1,6 @@
+/tsd.json
+/typings
+/.git
+/.travis.yml
+/.gitignore
+/tests
