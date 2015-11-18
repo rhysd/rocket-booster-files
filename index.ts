@@ -1,5 +1,5 @@
 import {EventEmitter} from 'events';
-import {spawn, ChildProcess} from 'child_process';
+import {spawn, exec, ChildProcess} from 'child_process';
 import {basename} from 'path';
 
 interface QueryResultCandidate {
@@ -65,32 +65,34 @@ class FilesBooster {
         this.startLocatePath(input);
     }
 
-    startProcess(input: string) {
+    private startProcess(input: string) {
         if (on_osx) {
             return spawn('mdfind', ['-name', input]);
         } else if (on_linux) {
             return spawn('locate', [input]);
         } else {
             // Note: Never reaches here
+            console.error('Invalid environment!');
             return null;
         }
     }
 
     startLocatePath(input: string) {
         this.prev_input = input;
-        this.current_process = spawn('locate', [input]);
-        this.current_process.on('data', (output: Buffer) => {
+        this.current_process = this.startProcess(input);
+        this.current_process.stdout.on('data', (output: Buffer) => {
             this.candidates_cache = output.toString().split(/\n+/);
-            const candidates = this.candidates_cache.map(path => {
-                                        return {
+            const candidates = this.candidates_cache.map(path => ({
                                             primaryText: basename(path),
                                             secondaryText: path,
-                                        };
-                                    });
+                                        }));
             this.context.emit('query-result', { input, candidates });
         });
         this.current_process.on('close', (code: number) => {
             this.current_process = null;
+        });
+        this.current_process.stderr.on('data', (output: Buffer) => {
+            console.error('locate process error!: ', output.toString());
         });
     }
 
@@ -98,7 +100,13 @@ class FilesBooster {
         const candidates = this.candidates_cache.filter(c => c.includes(input));
         this.prev_input = input;
         this.candidates_cache = candidates;
-        this.context.emit('query-result', { input, candidates });
+        this.context.emit('query-result', {
+            input,
+            candidates: candidates.map(path => ({
+                primaryText: basename(path),
+                secondaryText: path,
+            })),
+        });
     }
 }
 
