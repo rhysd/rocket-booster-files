@@ -24,7 +24,7 @@ class FilesBooster {
     constructor(public context: EventEmitter) {
         this.prev_input = null;
         this.current_process = null;
-        this.candidates_cache = null;
+        this.candidates_cache = [];
         if (this.isAvailable()) {
             this.context.on('query', this.query.bind(this));
         }
@@ -42,7 +42,7 @@ class FilesBooster {
         }
     }
 
-    child_running() {
+    private child_running() {
         return this.current_process !== null;
     }
 
@@ -52,7 +52,7 @@ class FilesBooster {
         }
 
         const child_running = this.child_running();
-        if (!child_running && input.startsWith(this.prev_input)) {
+        if (!child_running && this.candidates_cache.length !== 0 && input.startsWith(this.prev_input)) {
             this.narrowDown(input);
             return;
         }
@@ -77,16 +77,23 @@ class FilesBooster {
         }
     }
 
-    startLocatePath(input: string) {
+    private startLocatePath(input: string) {
         this.prev_input = input;
         this.current_process = this.startProcess(input);
+        this.candidates_cache = [];
         this.current_process.stdout.on('data', (output: Buffer) => {
-            this.candidates_cache = output.toString().split(/\n+/);
-            const candidates = this.candidates_cache.map(path => ({
+            // TODO: Should append result
+            const raw_candidates = output.toString().split(/\n+/);
+            const candidates = raw_candidates.map(path => ({
                                             primaryText: basename(path),
                                             secondaryText: path,
                                         }));
-            this.context.emit('query-result', { input, candidates });
+
+            // Only when new query doesn't arrived
+            if (input === this.prev_input) {
+                this.candidates_cache.push.apply(this.candidates_cache, raw_candidates);
+                this.context.emit('query-result', { input, candidates });
+            }
         });
         this.current_process.on('close', (code: number) => {
             this.current_process = null;
@@ -96,10 +103,8 @@ class FilesBooster {
         });
     }
 
-    narrowDown(input: string) {
+    private narrowDown(input: string) {
         const candidates = this.candidates_cache.filter(c => c.includes(input));
-        this.prev_input = input;
-        this.candidates_cache = candidates;
         this.context.emit('query-result', {
             input,
             candidates: candidates.map(path => ({
